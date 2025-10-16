@@ -8,10 +8,10 @@ class Config:
     """Configuration class for LLaVA inference"""
     
     # Model configuration
-    # MODEL_NAME = "liuhaotian/llava-v1.6-vicuna-7b"  # LLaVA-1.6 (NeXT) - 프로세서 파일 문제
-    MODEL_NAME = "llava-hf/llava-v1.6-vicuna-7b-hf"  # LLaVA-1.6 (HF 공식 버전)
-    # MODEL_NAME = "llava-hf/llava-1.5-7b-hf"  # LLaVA-1.5 (대안)
-    MODEL_PATH = None  # Set to local path if model is downloaded locally
+    # MODEL_NAME = "liuhaotian/llava-v1.6-vicuna-7b"  # LLaVA-1.6 (NeXT)
+    MODEL_NAME = "llava-hf/llava-v1.6-vicuna-7b-hf"  # LLaVA-1.6 (HF)
+    # MODEL_NAME = "llava-hf/llava-1.5-7b-hf"  # LLaVA-1.5
+    MODEL_PATH = "./models/llava/model_weights/"  # Set to local path if model is downloaded locally
     
     # Device configuration
     DEVICE = "cuda:0"  # "auto", "cuda", "cpu", or specific GPU like "cuda:0"
@@ -31,7 +31,7 @@ class Config:
     IMAGE_SIZE = (336, 336)  # Default size for LLaVA-1.6
     
     # Cache directory
-    CACHE_DIR = os.path.expanduser("~/.cache/huggingface/transformers")
+    CACHE_DIR = None # os.path.expanduser("~/.cache/huggingface/transformers")
     
     @classmethod
     def get_model_config(cls) -> Dict[str, Any]:

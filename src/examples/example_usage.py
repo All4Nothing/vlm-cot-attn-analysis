@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import List, Dict, Any
 import logging
 
-from inference_engine import LLaVAInferenceEngine
+from inference import LLaVAInferenceEngine
 from config import Config
 
 # Set up logging

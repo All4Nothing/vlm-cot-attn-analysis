@@ -36,6 +36,11 @@ class LLaVAInferenceEngine:
         if not self.is_loaded:
             logger.info("Loading LLaVA model...")
             self.model, self.processor = self.model_loader.load_model()
+            
+            # Set to evaluation mode for inference
+            self.model.eval()
+            logger.info("Model set to evaluation mode for inference")
+            
             self.is_loaded = True
             logger.info("Model loaded successfully!")
         else:
@@ -125,7 +130,7 @@ class LLaVAInferenceEngine:
             if generation_config:
                 gen_config.update(generation_config)
             
-            # Generate response with attention extraction
+            # Generate response
             logger.info("Generating response...")
             with torch.no_grad():
                 if return_attentions:
@@ -142,16 +147,13 @@ class LLaVAInferenceEngine:
                         **gen_config,
                         use_cache=True
                     )
-            
-            # Decode response and extract attention
+
+            # Process outputs and decode response
             if return_attentions:
                 sequences = outputs.sequences
-                attentions = None
-                if hasattr(outputs, 'attentions') and outputs.attentions is not None:
-                    attentions = outputs.attentions
-                    logger.info(f"Successfully extracted attentions: {type(attentions)}")
-                else:
-                    logger.warning("No attentions found in outputs")
+                attentions = outputs.attentions if hasattr(outputs, 'attentions') else None
+                scores = outputs.scores if hasattr(outputs, 'scores') else None
+                
                 input_length = inputs["input_ids"].shape[1]
                 generated_tokens = sequences[0][input_length:]
                 response = self.processor.decode(generated_tokens, skip_special_tokens=True)
@@ -161,7 +163,13 @@ class LLaVAInferenceEngine:
                 
                 logger.info(f"Response generated in {inference_time:.2f} seconds")
                 
-                result = {
+                # Basic attention logging (detailed analysis moved to AttentionAnalyzer)
+                if attentions:
+                    logger.info(f"Extracted attention from {len(attentions)} generation steps")
+                else:
+                    logger.warning("No attention data extracted")
+                
+                return {
                     "response": response.strip(),
                     "inference_time": inference_time,
                     "input_tokens": input_length,
@@ -169,35 +177,10 @@ class LLaVAInferenceEngine:
                     "total_tokens": len(sequences[0]),
                     "generation_config": gen_config,
                     "attentions": attentions,
+                    "scores": scores,
                     "input_ids": inputs["input_ids"],
                     "generated_ids": sequences
                 }
-                
-                if attentions:
-                    logger.info(f"Extracted attention from {len(attentions)} layers")
-                    logger.info(f"Attention type: {type(attentions)}")
-                    
-                    # Handle different attention formats
-                    if isinstance(attentions, tuple):
-                        # attentions is a tuple of layers, each layer may contain multiple heads
-                        for i, layer_attention in enumerate(attentions):
-                            if layer_attention is not None:
-                                if hasattr(layer_attention, 'shape'):
-                                    logger.info(f"Layer {i} attention shape: {layer_attention.shape}")
-                                elif isinstance(layer_attention, (list, tuple)):
-                                    logger.info(f"Layer {i} attention type: {type(layer_attention)}, length: {len(layer_attention)}")
-                                    if len(layer_attention) > 0 and hasattr(layer_attention[0], 'shape'):
-                                        logger.info(f"Layer {i} first element shape: {layer_attention[0].shape}")
-                                else:
-                                    logger.info(f"Layer {i} attention type: {type(layer_attention)}")
-                            else:
-                                logger.warning(f"Layer {i} attention is None")
-                    else:
-                        logger.info(f"Attention format: {type(attentions)}")
-                else:
-                    logger.warning("No attention data extracted - attentions is None or empty")
-                
-                return result
             else:
                 input_length = inputs["input_ids"].shape[1]
                 generated_tokens = outputs[0][input_length:]

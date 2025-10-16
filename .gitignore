@@ -1,0 +1,42 @@
+# Model weights (large files)
+models/llava/model_weights/
+
+# Python cache files
+models/llava/__pycache__/
+src/analyzers/__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Output files
+outputs/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Virtual environments
+venv/
+env/
+.env
+
+# Jupyter notebook checkpoints
+.ipynb_checkpoints/
+
+# Temporary files
+*.tmp
+*.temp
+*.log

@@ -8,7 +8,7 @@
 ├── config.py              # 설정 파일
 ├── model_loader.py         # 모델 로딩 관리
 ├── image_processor.py      # 이미지 전처리
-├── inference_engine.py     # 메인 inference 엔진
+├── inference.py     # 메인 inference 엔진
 ├── main.py                # 명령줄 인터페이스
 ├── example_usage.py       # 사용 예제
 ├── requirements.txt       # 의존성 패키지
@@ -98,7 +98,7 @@ python main.py info
 ### 기본 사용법
 
 ```python
-from inference_engine import LLaVAInferenceEngine
+from inference import LLaVAInferenceEngine
 
 # 엔진 초기화
 engine = LLaVAInferenceEngine()
@@ -121,7 +121,7 @@ engine.unload_model()
 ### 커스텀 설정
 
 ```python
-from inference_engine import LLaVAInferenceEngine
+from inference import LLaVAInferenceEngine
 from config import Config
 
 class CustomConfig(Config):
@@ -170,7 +170,7 @@ CUDA_VISIBLE_DEVICES=0 python main.py single --image image.jpg --question "질�
 ### 방법 3: 코드에서 설정
 ```python
 from config import Config
-from inference_engine import LLaVAInferenceEngine
+from inference import LLaVAInferenceEngine
 
 # GPU 0번 설정
 Config.set_cuda_device("0")

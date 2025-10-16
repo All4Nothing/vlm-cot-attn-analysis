@@ -12,12 +12,11 @@ Example usage:
     result = engine.generate_response("image.jpg", "What do you see?")
 """
 
-from .inference_engine import LLaVAInferenceEngine
+from .inference import LLaVAInferenceEngine
 from .model_loader import LLaVAModelLoader
 from .image_processor import ImageProcessor
 from .config import Config
 
-# 편의 함수 추가
 def create_engine(gpu_device=None):
     """
     Create a LLaVA inference engine with optional GPU specification
@@ -35,6 +34,7 @@ def create_engine(gpu_device=None):
 def get_version():
     """Get package version"""
     return __version__
+
 
 __all__ = [
     'LLaVAInferenceEngine',

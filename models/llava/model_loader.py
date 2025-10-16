@@ -2,8 +2,8 @@
 Model loader for LLaVA-1.6-Vicuna-7B
 """
 import torch
-# LLaVA-1.6 with AutoProcessor (자동 감지)
-from transformers import AutoProcessor, LlavaNextForConditionalGeneration
+# LLaVA-1.6 with LlavaNextProcessor (직접 지정)
+from transformers import LlavaNextProcessor, LlavaNextForConditionalGeneration
 from typing import Tuple, Optional
 import logging
 from config import Config
@@ -27,7 +27,7 @@ class LLaVAModelLoader:
         self.processor = None
         self.device = None
         
-    def load_model(self) -> Tuple[LlavaNextForConditionalGeneration, AutoProcessor]:
+    def load_model(self) -> Tuple[LlavaNextForConditionalGeneration, LlavaNextProcessor]:
         """
         Load the LLaVA model and processor
         
@@ -62,41 +62,52 @@ class LLaVAModelLoader:
             else:
                 torch_dtype = torch.float32
             
-            # Load processor with AutoProcessor
-            logger.info("Loading processor with AutoProcessor...")
-            self.processor = AutoProcessor.from_pretrained(
-                self.config.MODEL_PATH or self.config.MODEL_NAME,
+            # Determine model path
+            model_path = self.config.MODEL_PATH or self.config.MODEL_NAME
+            
+            # Check if local path exists
+            if self.config.MODEL_PATH:
+                import os
+                if not os.path.exists(self.config.MODEL_PATH):
+                    logger.warning(f"Local model path does not exist: {self.config.MODEL_PATH}")
+                    logger.info("Falling back to Hugging Face model name")
+                    model_path = self.config.MODEL_NAME
+            
+            # Load processor with LlavaNextProcessor
+            logger.info(f"Loading processor from: {model_path}")
+            self.processor = LlavaNextProcessor.from_pretrained(
+                model_path,
                 cache_dir=self.config.CACHE_DIR,
-                use_fast=True  # Fast tokenizer 사용 강제
+                use_fast=True  # force to use Fast tokenizer
             )
             
-            # 실제 로드된 프로세서 타입 확인
-            logger.info(f"Loaded processor type: {type(self.processor).__name__}")
-            logger.info(f"Processor class: {self.processor.__class__}")
+            # check the type of the loaded processor
+            # logger.info(f"Loaded processor type: {type(self.processor).__name__}")
+            # logger.info(f"Processor class: {self.processor.__class__}")
             
-            # 프로세서의 구성 요소 확인
+            # check the components of the processor
             if hasattr(self.processor, 'image_processor'):
                 logger.info(f"Image processor: {type(self.processor.image_processor).__name__}")
             if hasattr(self.processor, 'tokenizer'):
                 logger.info(f"Tokenizer: {type(self.processor.tokenizer).__name__}")
             
             # Load model
-            logger.info("Loading model...")
+            logger.info(f"Loading model from: {model_path}")
             self.model = LlavaNextForConditionalGeneration.from_pretrained(
-                self.config.MODEL_PATH or self.config.MODEL_NAME,
-                torch_dtype=torch_dtype,
+                model_path,
+                dtype=torch_dtype,  # Updated from torch_dtype to dtype
                 device_map=self.device if self.device != "cpu" else None,
                 cache_dir=self.config.CACHE_DIR,
-                low_cpu_mem_usage=True,
-                attn_implementation="eager"  # Enable attention extraction
+                low_cpu_mem_usage=True, # load model in chunks and move each chunk to GPU immediately to minimize memory usage
+                attn_implementation="eager"  # enable attention extraction
             )
             
             # Move to device if CPU
             if self.device == "cpu":
                 self.model = self.model.to(self.device)
             
-            # Set to evaluation mode
-            self.model.eval()
+            # Set to evaluation mode (default for inference)
+            # self.model.eval()
             
             logger.info("Model and processor loaded successfully!")
             return self.model, self.processor
