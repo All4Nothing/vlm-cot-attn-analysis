@@ -1,5 +1,8 @@
+# data
+data/
+
 # Model weights (large files)
-models/llava/model_weights/
+models/vicuna/model_weights/
 
 # Python cache files
 models/llava/__pycache__/
