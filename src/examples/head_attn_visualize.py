@@ -78,6 +78,11 @@ def visualize(
     os.makedirs(f"{output_dir}/L{layer}", exist_ok=True)
     num_heads = attentions[0][layer].shape[1] # Get number of heads from first step attention
     
+    # print(f"attentions: {attentions}")
+    print(f"len of attentions: {len(attentions)}") # 219 = generated tokens(steps)
+    print(f"len of attentions[0]: {len(attentions[0])}") # 32 = number of layers
+    print(f"shape of attentions layer: {attentions[0][layer].shape}") # [1, 32, 1260, 1260]
+    print(f"shape of attentions head: {attentions[0][layer][0, 0, 0, :image_token_end].shape}") # 576
     for head_idx in range(num_heads):
         vectors = []
         for qpos in token_positions:
@@ -122,7 +127,7 @@ if __name__ == "__main__":
     visualize(
         json_path="./outputs/attention_cache/n008-2018-08-30-15-16-55-0400__CAM_FRONT__1535657114112404_results.json",
         image_path="./data/n008-2018-08-30-15-16-55-0400__CAM_FRONT__1535657114112404.jpg",
-        object_name="car",
+        object_name="bus",
         layer=15,
         output_dir="./outputs/attention_head_visualization2"
     )

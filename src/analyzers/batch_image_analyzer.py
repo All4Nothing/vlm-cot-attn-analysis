@@ -137,6 +137,7 @@ class BatchImageAnalyzer:
                     "image_path": image_path,
                     "image_filename": os.path.basename(image_path),
                     "description": result["response"],
+                    "inference_time": result.get("inference_time", 0),
                     "token_info": {
                         "input_tokens": result["input_tokens"],
                         "output_tokens": result["output_tokens"],

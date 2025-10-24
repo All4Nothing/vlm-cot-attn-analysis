@@ -34,7 +34,7 @@ def example_batch_description_generation():
         
         # Set paths
         data_dir = "/workspace/yongjoo/vlm-cot-attn-analysis/data"
-        output_path = "/workspace/yongjoo/vlm-cot-attn-analysis/outputs/batch_analysis_results.json"
+        output_path = "/workspace/yongjoo/vlm-cot-attn-analysis/outputs/batch_analysis_results2.json"
         
         print(f"Data directory: {data_dir}")
         print(f"Output file: {output_path}")
@@ -67,6 +67,14 @@ def example_batch_description_generation():
             print("No results generated")
             return
         
+        # Store the result in analyzer.results for summary printing
+        # Convert the nested structure to flat structure expected by print_summary
+        if results and 'results' in results and len(results['results']) > 0:
+            flat_result = results['results'][0]  # Get the first (and only) result
+            analyzer.results = [flat_result]
+        else:
+            analyzer.results = []
+        
         if results:
             # Print summary
             analyzer.print_summary()
@@ -92,7 +100,7 @@ def example_resume_processing():
     
     try:
         # Load existing results
-        existing_results_path = "/workspace/yongjoo/vlm-cot-attn-analysis/outputs/batch_analysis_results.json"
+        existing_results_path = "/workspace/yongjoo/vlm-cot-attn-analysis/outputs/batch_analysis_results2.json"
         
         if os.path.exists(existing_results_path):
             print(f"Loading existing results from: {existing_results_path}")
@@ -140,7 +148,7 @@ def example_custom_prompt():
 6. Describe weather and lighting conditions"""
         
         data_dir = "/workspace/yongjoo/vlm-cot-attn-analysis/data"
-        output_path = "/workspace/yongjoo/vlm-cot-attn-analysis/outputs/driving_analysis_results.json"
+        output_path = "/workspace/yongjoo/vlm-cot-attn-analysis/outputs/driving_analysis_results2.json"
         
         print(f"Using autonomous driving analysis prompt")
         print(f"Processing: {data_dir}")
@@ -208,7 +216,7 @@ def example_quick_test():
         
         # Save test results
         analyzer.results = results
-        test_output = "/workspace/yongjoo/vlm-cot-attn-analysis/outputs/quick_test_results.json"
+        test_output = "/workspace/yongjoo/vlm-cot-attn-analysis/outputs/quick_test_results2.json"
         analyzer.save_results_to_json(test_output)
         
         print(f"\nQuick test completed!")
@@ -232,12 +240,6 @@ def main():
         # Run main batch processing
         example_batch_description_generation()
         
-        print("\n" + "="*80)
-        print("Additional examples available:")
-        print("- example_resume_processing(): Resume interrupted processing")
-        print("- example_custom_prompt(): Use custom analysis prompts")
-        print("- example_quick_test(): Quick test with few images")
-        
     except KeyboardInterrupt:
         print("\nProcessing interrupted by user.")
     except Exception as e:
@@ -245,10 +247,10 @@ def main():
 
 if __name__ == "__main__":
     # Run main batch processing by default
-    example_batch_description_generation()
+    # example_batch_description_generation()
     
     # Uncomment to run quick test instead
     # example_quick_test()
     
     # Uncomment to run all examples
-    # main()
+    main()

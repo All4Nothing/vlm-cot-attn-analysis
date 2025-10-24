@@ -21,7 +21,7 @@ def make_heatmap_from_patch_vector(patch_vector: torch.Tensor, grid_size: int = 
 def overlay_on_image(img: np.ndarray, heatmap: np.ndarray, alpha: float = 0.5) -> np.ndarray:
     """Overlays a heatmap on an image."""
     h, w = img.shape[:2]
-    heat_resized = cv2.resize(heatmap, (w, h), interpolation=cv2.INTER_NEAREST) # INTER_CUBIC
+    heat_resized = cv2.resize(heatmap, (w, h), interpolation=cv2.INTER_CUBIC)
     heat_color = plt.cm.jet(heat_resized)[:, :, :3]
     heat_color = (heat_color * 255).astype(np.uint8)
     overlay = cv2.addWeighted(img, 1 - alpha, heat_color, alpha, 0)
@@ -65,13 +65,6 @@ def visualize_across_layers(
     tokenizer = AutoProcessor.from_pretrained(model_path, use_fast=True).tokenizer
     img = np.array(Image.open(image_path).convert("RGB"))
 
-    # Calculate begin_pos_vis by finding where image tokens start
-    # For LLaVA-v1.6-vicuna-7b, image tokens (ID: 32000) start after prompt tokens
-    # The prompt format is: <BOS> <|im_start|>user\n<image>\n{question}<|im_end|>\n<|im_start|>assistant\n
-    # For this model, begin_pos_vis = 10 (BOS + prompt tokens before image)
-    begin_pos_vis = 10
-    print(f"Using begin_pos_vis: {begin_pos_vis} (position where image tokens start)")
-
     # 3. Find object token positions
     token_positions = find_object_token_positions(object_name, generated_ids, tokenizer)
     if not token_positions:
@@ -84,10 +77,7 @@ def visualize_across_layers(
         
         # Get number of heads from attention tensor
         num_heads = attentions[0][layer].shape[1]
-        print(f"len of attentions: {len(attentions)}") # 219 = generated tokens(steps)
-        print(f"len of attentions[0]: {len(attentions[0])}") # 32 = number of layers
-        print(f"shape of attentions layer: {attentions[0][layer].shape}") # [1, 32, 1260, 1260]
-        print(f"shape of attentions head: {attentions[0][layer][0, 0, 0, :image_token_end].shape}") # 576
+        
         for head_idx in range(num_heads):
             vectors = []
             for qpos in token_positions[0:1]:
@@ -97,11 +87,10 @@ def visualize_across_layers(
                 if not (0 <= generation_step_idx < len(attentions)): continue
 
                 # Get attention tensor for this step and current layer
-                attn_at_step = attentions[generation_step_idx][layer]
+                layer_attn_at_step = attentions[generation_step_idx][layer]
                 
                 # Extract attention vector from image patches to object token
-                vec = attn_at_step[0, head_idx, -1:, begin_pos_vis:begin_pos_vis+image_token_end] # [576]
-                # print(f"shape of vec: {vec.shape}") # [576]
+                vec = layer_attn_at_step[0, head_idx, 0, :image_token_end]
                 vectors.append(vec)
 
             if not vectors: continue
@@ -110,7 +99,6 @@ def visualize_across_layers(
             # mean_vec = torch.stack(vectors).mean(dim=0)
             # sum_vec = torch.stack(vectors).sum(dim=0)
             max_vec = torch.stack(vectors).max(dim=0)[0]
-            # print(f"shape of max_vec: {max_vec.shape}") # [576]
             heatmap = make_heatmap_from_patch_vector(max_vec)
             overlay = overlay_on_image(img, heatmap)
 
@@ -138,6 +126,6 @@ if __name__ == "__main__":
         json_path="./outputs/attention_cache/n008-2018-08-30-15-16-55-0400__CAM_FRONT__1535657114112404_results.json",
         image_path="./data/n008-2018-08-30-15-16-55-0400__CAM_FRONT__1535657114112404.jpg",
         object_name="bus",
-        layers_to_viz=range(19,21),
+        layers_to_viz=range(0,4),
         output_dir="./outputs/layer_attention_visualization"
     )
