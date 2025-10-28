@@ -379,6 +379,21 @@ referseg = Conversation(
     sep="\n",
 )
 
+# add for driving assistant
+conv_llava_v1_driving = Conversation(
+    system="You are an expert autonomous driving assistant. "
+           "Your task is to analyze visual driving scenes by following a step-by-step reasoning process. "
+           "You will first describe the scene, then analyze critical objects and their influence, "
+           "and finally formulate a reasoned driving plan based on all available information.",
+    roles=("USER", "ASSISTANT"),
+    version="v1",
+    messages=(),
+    offset=0,
+    sep_style=SeparatorStyle.TWO,
+    sep=" ",
+    sep2="</s>",
+)
+
 default_conversation = conv_vicuna_v1
 conv_templates = {
     "default": conv_vicuna_v0,
@@ -398,6 +413,7 @@ conv_templates = {
     "llava_llama_2": conv_llava_llama_2,
     "mpt": conv_mpt,
     "referseg": referseg,
+    "conv_llava_v1_driving": conv_llava_v1_driving,
 }
 
 

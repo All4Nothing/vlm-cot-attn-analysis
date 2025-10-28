@@ -10,6 +10,7 @@ import torch
 
 from collector import collect_attention
 from analyze import load_attention_file, analyze_heads
+from multi_turn_inference import multi_turn_inference
 # from bbox import (
 #    combine_heads,
 #    binarize_mean_relu,
@@ -184,9 +185,25 @@ def main(cfg: DictConfig):
     elif cfg.stage == "pipeline":
         assert cfg.data.image_file and cfg.data.query, "image_file and query required"
         out = run_single(cfg)
-        print(json.dumps({k: v for k, v in out.items()}, indent=2))
+        # print(json.dumps({k: v for k, v in out.items()}, indent=2))
     elif cfg.stage == "batch":
         run_batch(cfg)
+    elif cfg.stage == "multi_turn":
+        assert cfg.data.image_file, "image_file required for multi_turn"
+        save_id = cfg.data.get("save_id", cfg.data.image_file.split("/")[-1].split(".")[0])
+        results = multi_turn_inference(
+            cfg=cfg,
+            image_file=cfg.data.image_file,
+            save_dir=_out_root(cfg),
+            save_id=save_id
+        )
+        print(f"\n{'='*60}")
+        print(f"Multi-turn Inference Complete!")
+        print(f"{'='*60}")
+        print(f"\n[Stage 1] Scene Description:\n{results['stage1']['text']}")
+        print(f"\n[Stage 2] Scene Analysis:\n{results['stage2']['text']}")
+        print(f"\n[Stage 3] Planning:\n{results['stage3']['text']}")
+        print(f"\nResults saved to: {results.get('multi_turn_file', 'N/A')}")
     else:
         raise ValueError(f"Invalid stage: {cfg.stage}")
 

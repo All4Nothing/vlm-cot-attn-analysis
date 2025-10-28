@@ -357,7 +357,7 @@ class MetadataStation(StationEngine):
             tokenized_segments = {
                 "system": tokenize_segment(segments["system"], False),
                 "role_0": tokenize_segment(segments["role_0"], False),
-                "image": [image_token_idx] if segments["image"] else [],
+                "vis": [image_token_idx] if segments["image"] else [],  # "image" → "vis"로 키 이름 변경
                 "inst_q": tokenize_segment(segments["inst_q"], False),
                 "role_1": tokenize_segment(segments["role_1"], False),
             }

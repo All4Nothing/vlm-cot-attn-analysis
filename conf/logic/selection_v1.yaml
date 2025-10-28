@@ -1,6 +1,6 @@
 # Head selection and post-processing logic
 
-top_k: 5
+top_k: 10
 
 threshold:
   method: chord      # chord (elbow) on head sums

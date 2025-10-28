@@ -5,7 +5,7 @@ cache_dir: null
 # vision_tower_cache_dir: null
 
 # Conversation template for prompt formatting
-conv_mode: referseg
+conv_mode: vicuna_v1
 
 # Generation settings (keep small; we only need few tokens)
 max_new_tokens: 10
