@@ -6,6 +6,7 @@ from typing import Dict, Tuple
 import torch
 import numpy as np
 from PIL import Image
+from omegaconf import DictConfig, OmegaConf
 
 from models.llava.constants import (
     IMAGE_TOKEN_INDEX,
@@ -25,14 +26,27 @@ from models.llava.mm_utils import (
 from lab.stations import MetadataStation
 from lab.prompts import PromptTemplates, PromptConfig
 
+from analyze import load_attention_file, analyze_heads
+from viz import plot_heads_grid, save_all_heads, save_all_heads_grid
+
 from typing import Optional
 import json
 
+def _sanitize(s: str) -> str:
+    return s.replace("/", "-").replace(" ", "_")
+
+
+def _model_dir(cfg: DictConfig) -> str:
+    return _sanitize(cfg.model.name)
+
+
+def _out_root(cfg) -> str:
+    return cfg.data.output_dir
 
 def _replace_image_placeholder(text: str, model_config) -> str:
     """Replace IMAGE_PLACEHOLDER with actual image tokens based on model config"""
     image_token_se = DEFAULT_IM_START_TOKEN + DEFAULT_IMAGE_TOKEN + DEFAULT_IM_END_TOKEN
-    
+
     if IMAGE_PLACEHOLDER in text:
         # Replace placeholder with appropriate image token
         if model_config.mm_use_im_start_end:
@@ -92,69 +106,96 @@ def load_model_from_cfg(cfg) -> Tuple[object, object, object, int, str]:
 
     print(f"Model embedding size: {model.get_input_embeddings().weight.shape[0]}")
     print(f"Tokenizer vocab size: {len(tok)}")
-
     return tok, model, img_proc, context_len, model_name_str
+
+def _analyze_attn(cfg: DictConfig, attn_file, stage_name: str, save_id: str):
+    """Analyze attention and save results to image-specific directory"""
+    os.makedirs(_out_root(cfg), exist_ok=True)
+    model_dir = _model_dir(cfg)
+    # Create image-specific subdirectory
+    attn_root = os.path.join(_out_root(cfg), model_dir, save_id)
+    os.makedirs(attn_root, exist_ok=True)
+
+    # Stage: analyze
+    attn, meta = load_attention_file(attn_file)
+    selected = analyze_heads(cfg, attn, meta)
+
+    # Save analysis (simplified filename)
+    with open(attn_file.replace('.pkl', '_analysis.pkl'), 'wb') as f:
+        pickle.dump(selected, f)
+
+    # Visualization (simplified filename)
+    if cfg.save_fig:
+        fig_path = os.path.join(attn_root, f"{stage_name}_top{cfg.logic.top_k}.png")
+        plot_heads_grid(attn, selected[: cfg.logic.top_k], meta, fig_path, show_plot=cfg.show_plot)
+
+    # Save all heads if enabled
+    if cfg.get("save_all_heads", False):
+        save_all_heads(attn, meta, attn_root, stage_name)
+        grid_path = os.path.join(attn_root, f"{stage_name}_all_heads_overview.png")
+        save_all_heads_grid(attn, meta, grid_path, heads_per_row=8)
+
 
 def _prepare_prompt_and_tokenize_from_messages(messages: list, tokenizer, cfg, model) -> torch.Tensor:
     """Prepare prompt from messages list and tokenize
-    
+
     Args:
         messages: List of {"role": "user"/"assistant", "content": str}
         tokenizer: Model tokenizer
         cfg: Config object
         model: Model instance
-    
+
     Returns:
         input_ids tensor
     """
     # Use conversation template to format messages
     conv = conv_templates[cfg.model.conv_mode].copy()
-    
+
     # Add all messages to conversation
     # Only the first user message should have image token
     for i, msg in enumerate(messages):
         role = conv.roles[0] if msg["role"] == "user" else conv.roles[1]
         content = msg["content"]
-        
+
         # Replace IMAGE_PLACEHOLDER with actual image tokens (ONLY for first user message)
         if i == 0 and msg["role"] == "user":
             content = _replace_image_placeholder(content, model.config)
-        
+
         conv.append_message(role, content)
-    
+
     # Add None for assistant's turn (generation target)
     if messages[-1]["role"] == "user":
         conv.append_message(conv.roles[1], None)
-    
+
     # Get formatted prompt
     prompt = conv.get_prompt()
-    
+
     input_ids = tokenizer_image_token(
-        prompt, tokenizer, IMAGE_TOKEN_INDEX, 
+        prompt, tokenizer, IMAGE_TOKEN_INDEX,
         return_tensors="pt", conv=conv
     ).unsqueeze(0).to(model.device)
-    
+
     return input_ids
 
 
-def _generate_with_attention(model, tokenizer, input_ids: torch.Tensor, 
-                            image_tensor: Optional[torch.Tensor] = None, 
-                            image_sizes: Optional[list] = None, 
-                            max_new_tokens: int = 150, 
-                            do_sample: bool = False, 
-                            num_beams: int = 1, 
+def _generate_with_attention(stage, model, tokenizer, input_ids: torch.Tensor,
+                            image_tensor: Optional[torch.Tensor] = None,
+                            image_sizes: Optional[list] = None,
+                            max_new_tokens: int = 150,
+                            do_sample: bool = False,
+                            num_beams: int = 1,
                             vis_token_pos: Optional[Tuple[int, int]] = None,
                             **generation_kwargs) -> Tuple[str, Optional[torch.Tensor], Optional[Tuple[int, int]]]:
     """Generate text and collect attention weights
-    
+
     Args:
         image_tensor: Image tensor. Should be provided ONLY in the first turn.
                       For subsequent turns, pass None to reuse K-V cached visual features.
-        vis_token_pos: Tuple of (begin_pos, vis_len) for visual tokens. 
+        vis_token_pos: Tuple of (begin_pos, vis_len) for visual tokens.
                        If None, will try to get from MetadataStation.
                        If provided, use these positions to extract visual attention.
         **generation_kwargs: Additional arguments for model.generate() (e.g., temperature, top_p, etc.)
-    
+
     Returns:
         (generated_text, attn_last_to_vis, vis_token_pos)
         vis_token_pos is returned so it can be reused in subsequent turns
@@ -166,7 +207,7 @@ def _generate_with_attention(model, tokenizer, input_ids: torch.Tensor,
         images_arg = image_tensor.unsqueeze(0)
     else:
         images_arg = None
-    
+
     gen = model.generate(
         inputs=input_ids,
         images=images_arg,  # None for turns 2+, reuses K-V cache
@@ -178,12 +219,42 @@ def _generate_with_attention(model, tokenizer, input_ids: torch.Tensor,
         output_attentions=True,
         **generation_kwargs,  # Pass additional generation arguments
     )
-    
+
+
     sequences = gen.sequences
     generated_text = tokenizer.batch_decode(sequences, skip_special_tokens=True)[0]
-    
+
+    # Find the index of the generated text
+    ## len(sequences[0] == len(gen.attentions)
+    if stage == "stage1" or stage == "stage2":
+        idx = None
+        len_sequences = len(sequences[0])
+        # print(f"sequences[0][0]: {sequences[0][0]}")
+        # print(f"sequences[0][1]: {sequences[0][1]}")
+        # print(f"sequences[0][-2]: {sequences[0][-2]}")
+        # print(f"sequences[0][-1]: {sequences[0][-1]}")
+
+        # print(f"decoded sequences[0][0]: {tokenizer.decode(sequences[0][0])}")
+        # print(f"decoded sequences[0][1]: {tokenizer.decode(sequences[0][1])}")
+        # print(f"decoded sequences[0][{len_sequences-2}]: {tokenizer.decode(sequences[0][len_sequences-2])}")
+        # print(f"decoded sequences[0][{len_sequences-1}]: {tokenizer.decode(sequences[0][len_sequences-1])}")
+        for i in range(len(sequences[0])):
+            # print(f"gen.sequences[{i}]: {gen.sequences[0][i]}, decoded: {tokenizer.decode(gen.sequences[0][i])}")
+            if sequences[0][i] == 7933 and idx is None:
+                idx = i
+                print(f"idx: {idx}")
+                print(f"decoded idx-1: {tokenizer.decode(sequences[0][idx-1])}")
+                print(f"decoded idx: {tokenizer.decode(sequences[0][idx])}")
+                print(f"decoded idx+1: {tokenizer.decode(sequences[0][idx+1])}")
+        if idx is None:
+            print("⚠️ Generated text not found.")
+            idx = 0
+    else:
+        idx = 0
+    # idx = -1
+
     attn_last_to_vis = None
-    
+
     # Get visual token position
     if vis_token_pos is None:
         # First turn: get from MetadataStation
@@ -194,19 +265,36 @@ def _generate_with_attention(model, tokenizer, input_ids: torch.Tensor,
     else:
         # Subsequent turns: use cached position
         begin_pos_vis, vis_len = vis_token_pos
-    
+
     # Collect visual attention using the position
     if vis_token_pos is not None and hasattr(gen, 'attentions') and gen.attentions:
         begin_pos_vis, vis_len = vis_token_pos
-        step_idx = gen.attentions[-1]
-        layers = [t[0] for t in step_idx]  # list of [H,1,src]
-        attn = torch.stack(layers, dim=0)  # [L,H,1,src]
+        print(f"len of gen.attentions: {len(gen.attentions)}")
+        print(f"len input_ids: {input_ids.shape}") # 1 x 1024
+        print(f"begin_pos_vis: {begin_pos_vis}")
+        print(f"vis_len: {vis_len}")
+        step_idx = gen.attentions[idx]
+        print(f"len of step_idx: {len(step_idx)}") # 32
+        print(f"shape of step_idx[0]: {step_idx[0].shape}") # 1 x 32 x 1252 x 1252
+        print(f"shape of step_idx[0][0]: {step_idx[0][0].shape}") # 32 x 1252 x 1252
+        layers = [t[0] for t in step_idx]
+        attn = torch.stack(layers, dim=0)
         
+        print(f"shape of attn: {attn.shape}") # 32 x 32 x 1 x 1252
+        # 각 헤드별로 값이 가장 높은 key의 위치를 값으로 갖는 32 x 32 행렬로
+        # attn: [num_layers, num_heads, 1, num_keys]
+        # attn_max_idx_by_head = attn.argmax(dim=-1)  # shape: [num_layers, num_heads, 1]
+        # attn_max_idx_by_head_matrix = attn_max_idx_by_head.squeeze(-1)  # shape: [32, 32]
+        # print(f"attn_max_idx_by_head_matrix.shape: {attn_max_idx_by_head_matrix.shape}")
+        # print(f"attn_max_idx_by_head_matrix: {attn_max_idx_by_head_matrix}")  # shape: [32, 32]
+
         # Extract attention to visual tokens
         # NOTE: In subsequent turns, K-V cache contains visual tokens from first turn
-        attn_last_to_vis = attn[:, :, -1:, begin_pos_vis:begin_pos_vis + vis_len]
-    
-    return generated_text, attn_last_to_vis, vis_token_pos
+        # system prompt + visual tokens + user prompt = 34 + 576 + 107
+        attn_last_to_vis = attn[:, :, -1:, begin_pos_vis:begin_pos_vis + vis_len] # 32 x 32 x 1 x 722(34+576)
+
+
+    return generated_text, attn_last_to_vis, vis_token_pos, attn_last_to_sys, attn_last_to_user
 
 
 def _save_stage_result(
@@ -217,26 +305,28 @@ def _save_stage_result(
     attn: Optional[torch.Tensor],
     meta: dict
 ) -> str:
-    """각 stage 결과를 일관되게 저장"""
-    out_dir = os.path.join(save_dir, model_dir)
+    """Save results for each stage consistently"""
+    # Create image-specific subdirectory: outputs/results/model_name/image_name/
+    out_dir = os.path.join(save_dir, model_dir, save_id)
     _ensure_dir(out_dir)
-    
-    stage_filename = f"{save_id}_{stage_name}.pkl"
+
+    # Simplified filename (no need to repeat save_id in filename)
+    stage_filename = f"{stage_name}.pkl"
     save_path = os.path.join(out_dir, stage_filename)
-    
+
     result = {
         "attn": attn.detach().cpu() if attn is not None else None,
         "meta": meta
     }
-    
+
     with open(save_path, "wb") as f:
         pickle.dump(result, f)
-    
+
     return save_path
 
 
 # ═══════════════════════════════════════════════════════
-# Multi-turn Inference 메인 함수
+# Multi-turn Inference Main Function
 # ═══════════════════════════════════════════════════════
 
 def multi_turn_inference(
@@ -246,90 +336,91 @@ def multi_turn_inference(
     save_id: str
 ) -> Dict:
     """
-    3단계 multi-turn inference를 순차적으로 수행
-    
-    Stage 1: Scene Description - 이미지 설명 생성
-    Stage 2: Scene Analysis - 설명을 바탕으로 분석
-    Stage 3: Planning - 분석을 바탕으로 계획 수립
-    
+    Sequentially perform 3-step multi-turn inference
+
+    Stage 1: Scene Description - Generate image description
+    Stage 2: Scene Analysis - Analyze based on description
+    Stage 3: Planning - Plan based on analysis
+
     Args:
         cfg: Hydra config
-        image_file: 이미지 파일 경로
-        save_dir: 결과 저장 디렉토리
-        save_id: 저장 파일 ID
-    
+        image_file: image file path
+        save_dir: result output directory
+        save_id: save file ID
+
     Returns:
         Dict with all stage results and file paths
     """
-    
+
     # ═══════════════════════════════════════════════════════
-    # 1️⃣ 초기화 단계 (Setup Phase)
+    # 1️⃣ Initialization Stage (Setup Phase)
     # ═══════════════════════════════════════════════════════
     print(f"[Multi-turn] Loading model...")
     tokenizer, model, image_processor, _, model_name_str = load_model_from_cfg(cfg)
-    
-    # 이미지 로드 및 전처리
+
+    # Load and preprocess image
     print(f"[Multi-turn] Loading image: {image_file}")
     image = load_image(image_file)
     image_size = image.size  # (W, H)
     image_tensor = process_images([image], image_processor, model.config)
     image_tensor = image_tensor.to(model.device, dtype=torch.float16)
     image_sizes = [image.size]
-    
-    # 출력 디렉토리 설정
+
+    # Set output directory - Create image-specific subdirectory
     model_dir = _sanitize_name(cfg.model.name)
-    out_dir = os.path.join(save_dir, model_dir)
+    out_dir = os.path.join(save_dir, model_dir, save_id)
     _ensure_dir(out_dir)
-    
-    # 결과 저장용 딕셔너리
+
+    # Result storage dict
     results = {
         "model_name": model_name_str,
         "image_file": image_file,
         "image_size": image_size,
         "save_id": save_id
     }
-    
+
     # ═══════════════════════════════════════════════════════
-    # 대화 이력 관리 (Multi-turn conversation history)
+    # Multi-turn conversation history
     # ═══════════════════════════════════════════════════════
     messages = []
-    vis_token_pos = None  # Visual token 위치 캐시 (K-V cache에서 재사용)
-    
+    vis_token_pos = None  # Visual token position cache (reuse from K-V cache)
+
     with torch.inference_mode():
         try:
             # ═══════════════════════════════════════════════════════
             # 2️⃣ Stage 1: Scene Description
             # ═══════════════════════════════════════════════════════
             print(f"[Multi-turn] Stage 1: Scene Description")
-            
-            # 프롬프트 준비 - messages에 첫 user 메시지 추가
+
+            # Prepare prompt - add first user message to messages
             query_stage1 = PromptTemplates.format_scene_description(
                 image_placeholder=IMAGE_PLACEHOLDER
             )
             messages.append({"role": "user", "content": query_stage1})
-            
+
             # Tokenize from messages
             input_ids_stage1 = _prepare_prompt_and_tokenize_from_messages(
                 messages, tokenizer, cfg, model
             )
 
             print(f"Stage 1 input_ids max value: {input_ids_stage1.max().item()}")
-            
-            # Inference 실행 (첫 턴: image_tensor 전달하여 visual features 생성)
+
+            # Run inference (first turn: provide image_tensor to generate visual features)
             scene_desc_text, attn_stage1, vis_token_pos = _generate_with_attention(
-                model, tokenizer, input_ids_stage1, 
-                image_tensor=image_tensor,  # 첫 턴에만 전달
+                "stage1",
+                model, tokenizer, input_ids_stage1,
+                image_tensor=image_tensor,  # Only provide first turn
                 image_sizes=image_sizes,
-                vis_token_pos=None,  # 첫 턴이므로 None
+                vis_token_pos=None,  # None in the first turn
                 **PromptConfig.SCENE_DESCRIPTION
             )
-            
-            # Assistant 응답을 messages에 추가
+
+            # Add assistant response to messages
             messages.append({"role": "assistant", "content": scene_desc_text})
-            
+
             print(f"Scene Description: {scene_desc_text[:100]}...")
-            
-            # 메타데이터 구성
+
+            # Compose metadata
             P = int(np.sqrt(attn_stage1.shape[-1])) if attn_stage1 is not None else 0
             meta_stage1 = {
                 "stage": "scene_description",
@@ -342,60 +433,62 @@ def multi_turn_inference(
                 "num_layers": int(attn_stage1.shape[0]) if attn_stage1 is not None else 0,
                 "num_heads": int(attn_stage1.shape[1]) if attn_stage1 is not None else 0,
                 "prompt": query_stage1,
-                "conversation_history": messages.copy(),  # 대화 이력 포함
+                "conversation_history": messages.copy(),
             }
-            
-            # 결과 저장
+
+            # Save result
             stage1_path = _save_stage_result(
                 save_dir, model_dir, save_id, "stage1_description",
                 attn_stage1, meta_stage1
             )
-            
+
+            _analyze_attn(cfg, stage1_path, "stage1_description", save_id)
+
             results["stage1"] = {
                 "text": scene_desc_text,
                 "attn_shape": list(attn_stage1.shape) if attn_stage1 is not None else None,
                 "save_path": stage1_path,
                 "meta": meta_stage1
             }
-            
+
         except Exception as e:
             print(f"[Multi-turn] Error in Stage 1: {e}")
             results["stage1"] = {"error": str(e)}
             raise
-        
+
         try:
             # ═══════════════════════════════════════════════════════
             # 3️⃣ Stage 2: Scene Analysis
             # ═══════════════════════════════════════════════════════
             print(f"[Multi-turn] Stage 2: Scene Analysis")
-            
-            # 프롬프트 준비 - messages에 다음 user 메시지 추가
-            # (이전 대화 이력은 messages에 이미 포함되어 있음)
+
+            # Prepare prompt - add next user message to messages
+            # (previous conversation history is already in messages)
             query_stage2 = PromptTemplates.SCENE_ANALYSIS
             messages.append({"role": "user", "content": query_stage2})
-            
-            # Tokenize from messages (대화 이력 포함)
+
+            # Tokenize from messages (with conversation history)
             input_ids_stage2 = _prepare_prompt_and_tokenize_from_messages(
                 messages, tokenizer, cfg, model
             )
 
-            print(f"Stage 2 input_ids max value: {input_ids_stage2.max().item()}")
-            
-            # Inference 실행 (두 번째 턴: image_tensor=None, K-V cache 재사용)
+            # Run inference (second turn: image_tensor=None, reuse K-V cache)
             analysis_text, attn_stage2, _ = _generate_with_attention(
-                model, tokenizer, input_ids_stage2, 
-                image_tensor=image_tensor, # None,  # K-V cache의 visual features 재사용
+                "stage2",
+                model, tokenizer, input_ids_stage2,
+                image_tensor=image_tensor, # None,  # Reuse K-V cache's visual features
                 image_sizes=image_sizes, # None,
-                vis_token_pos=vis_token_pos,  # Visual token 위치 재사용
+                vis_token_pos=vis_token_pos,  # Reuse visual token position
                 **PromptConfig.SCENE_ANALYSIS
             )
-            
-            # Assistant 응답을 messages에 추가
+
+            print(f"Stage 2 attn_stage2: {attn_stage2.shape}")
+            # Add assistant response to messages
             messages.append({"role": "assistant", "content": analysis_text})
-            
+
             print(f"[Multi-turn] Stage 2 output: {analysis_text[:100]}...")
-            
-            # 메타데이터 구성
+
+            # Compose metadata
             P = int(np.sqrt(attn_stage2.shape[-1])) if attn_stage2 is not None else 0
             meta_stage2 = {
                 "stage": "scene_analysis",
@@ -408,58 +501,60 @@ def multi_turn_inference(
                 "num_layers": int(attn_stage2.shape[0]) if attn_stage2 is not None else 0,
                 "num_heads": int(attn_stage2.shape[1]) if attn_stage2 is not None else 0,
                 "prompt": query_stage2,
-                "conversation_history": messages.copy(),  # 대화 이력 포함
+                "conversation_history": messages.copy(),
             }
-            
-            # 결과 저장
+
+            # Save result
             stage2_path = _save_stage_result(
                 save_dir, model_dir, save_id, "stage2_analysis",
                 attn_stage2, meta_stage2
             )
-            
+
             results["stage2"] = {
                 "text": analysis_text,
                 "attn_shape": list(attn_stage2.shape) if attn_stage2 is not None else None,
                 "save_path": stage2_path,
                 "meta": meta_stage2
             }
-            
+
+            _analyze_attn(cfg, stage2_path, "stage2_analysis", save_id)
+
         except Exception as e:
             print(f"[Multi-turn] Error in Stage 2: {e}")
             results["stage2"] = {"error": str(e)}
-            # Stage 2 실패해도 Stage 1 결과는 있으므로 부분 저장
-            
+            # Even if Stage 2 fails, Stage 1 results are preserved
+
         try:
             # ═══════════════════════════════════════════════════════
             # 4️⃣ Stage 3: Planning
             # ═══════════════════════════════════════════════════════
             print(f"[Multi-turn] Stage 3: Planning")
-            
-            # 프롬프트 준비 - messages에 다음 user 메시지 추가
-            # (Stage 1, 2의 대화 이력은 messages에 이미 포함되어 있음)
+
+            # Prepare prompt - add next user message to messages
+            # (conversation history from Stage 1, 2 already in messages)
             query_stage3 = PromptTemplates.PLANNING
             messages.append({"role": "user", "content": query_stage3})
-            
-            # Tokenize from messages (전체 대화 이력 포함)
+
+            # Tokenize from messages (with full conversation history)
             input_ids_stage3 = _prepare_prompt_and_tokenize_from_messages(
                 messages, tokenizer, cfg, model
             )
-            
-            # Inference 실행 (세 번째 턴: image_tensor=None, K-V cache 재사용)
+
+            # Run inference (third turn: image_tensor=None, reuse K-V cache)
             planning_text, attn_stage3, _ = _generate_with_attention(
-                model, tokenizer, input_ids_stage3, 
-                image_tensor=image_tensor, # None,  # K-V cache의 visual features 재사용
+                "stage3",
+                model, tokenizer, input_ids_stage3,
+                image_tensor=image_tensor, # None,  # Reuse K-V cache's visual features
                 image_sizes=image_sizes, # None,
-                vis_token_pos=vis_token_pos,  # Visual token 위치 재사용
+                vis_token_pos=vis_token_pos,  # Reuse visual token position
                 **PromptConfig.PLANNING
             )
-            
-            # Assistant 응답을 messages에 추가
+            # Add assistant response to messages
             messages.append({"role": "assistant", "content": planning_text})
-            
+
             print(f"[Multi-turn] Stage 3 output: {planning_text[:100]}...")
-            
-            # 메타데이터 구성
+
+            # Compose metadata
             P = int(np.sqrt(attn_stage3.shape[-1])) if attn_stage3 is not None else 0
             meta_stage3 = {
                 "stage": "planning",
@@ -472,54 +567,56 @@ def multi_turn_inference(
                 "num_layers": int(attn_stage3.shape[0]) if attn_stage3 is not None else 0,
                 "num_heads": int(attn_stage3.shape[1]) if attn_stage3 is not None else 0,
                 "prompt": query_stage3,
-                "conversation_history": messages.copy(),  # 대화 이력 포함
+                "conversation_history": messages.copy(),
             }
-            
-            # 결과 저장
+
+            # Save result
             stage3_path = _save_stage_result(
                 save_dir, model_dir, save_id, "stage3_planning",
                 attn_stage3, meta_stage3
             )
-            
+
             results["stage3"] = {
                 "text": planning_text,
                 "attn_shape": list(attn_stage3.shape) if attn_stage3 is not None else None,
                 "save_path": stage3_path,
                 "meta": meta_stage3
             }
-            
+
+            _analyze_attn(cfg, stage3_path, "stage3_planning", save_id)
+
         except Exception as e:
             print(f"[Multi-turn] Error in Stage 3: {e}")
             results["stage3"] = {"error": str(e)}
-    
+
     # ═══════════════════════════════════════════════════════
-    # 5️⃣ 통합 결과 저장
+    # 5️⃣ Save aggregated results
     # ═══════════════════════════════════════════════════════
-    
-    # 전체 결과를 하나의 파일로 저장
-    multi_turn_path = os.path.join(out_dir, f"{save_id}_multi_turn.pkl")
+
+    # Save the full results as a single file (simplified filename)
+    multi_turn_path = os.path.join(out_dir, "multi_turn.pkl")
     with open(multi_turn_path, "wb") as f:
         pickle.dump(results, f)
-    
-    # 사람이 읽기 쉬운 텍스트 요약 JSON 저장
+
+    # Save human-readable text summary JSON (simplified filename)
     summary = {
         "model": model_name_str,
         "image": image_file,
-        "conversation_history": messages,  # 전체 대화 이력
+        "conversation_history": messages,  # Full conversation history
         "scene_description": results.get("stage1", {}).get("text", "N/A"),
         "scene_analysis": results.get("stage2", {}).get("text", "N/A"),
         "planning": results.get("stage3", {}).get("text", "N/A"),
     }
-    
-    summary_path = os.path.join(out_dir, f"{save_id}_multi_turn_summary.json")
+
+    summary_path = os.path.join(out_dir, "multi_turn_summary.json")
     with open(summary_path, "w", encoding="utf-8") as f:
         json.dump(summary, f, indent=2, ensure_ascii=False)
-    
+
     results["multi_turn_file"] = multi_turn_path
     results["summary_file"] = summary_path
-    
+
     print(f"[Multi-turn] Complete! Saved to:")
     print(f"  - Multi-turn: {multi_turn_path}")
     print(f"  - Summary: {summary_path}")
-    
+
     return results

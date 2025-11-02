@@ -5,15 +5,12 @@ from typing import Dict, Optional
 
 
 class PromptTemplates:
-    """프롬프트 템플릿 관리 클래스"""
+    """Prompt template management class"""
     
     # ═════════════════════════════════════════════
     # Scene Description
     # ═════════════════════════════════════════════
-    SCENE_DESCRIPTION = """Suppose you are driving, generate a description of the driving scene which includes the key factors for driving planning, including the traffic
-conditions, weather, time of day and road conditions, traffic signs, and traffic lights that affect the driving of the ego vehicle if it exists,
-indicating smooth surfaces or the presence of obstacles; The description should be concise, and accurate to facilitate informed decision-
-making. Please make sure the traffic light colors you provide are accurate; otherwise, give ‘unknown.’"""
+    SCENE_DESCRIPTION = """Suppose you are driving, generate a description of the driving scene which includes the key factors for driving planning, including the traffic conditions, weather, time of day and road conditions, traffic signs, and traffic lights that affect the driving of the ego vehicle if it exists, indicating smooth surfaces or the presence of obstacles; The description should be concise, and accurate to facilitate informed decision-making. Please make sure the traffic light colors you provide are accurate; otherwise, give ‘unknown.’"""
     
     # ═════════════════════════════════════════════
     # Scene Analysis
@@ -27,29 +24,29 @@ making. Please make sure the traffic light colors you provide are accurate; othe
     
     @staticmethod
     def format_scene_description(image_placeholder: str = "<image>") -> str:
-        """Scene description 프롬프트 포맷팅"""
+        """Scene description prompt formatting"""
         return f"{image_placeholder}\n{PromptTemplates.SCENE_DESCRIPTION}"
 
 
 class PromptConfig:
-    """각 단계별 생성 설정"""
+    """Generation configuration for each stage"""
     
     SCENE_DESCRIPTION = {
-        "max_new_tokens": 150,
+        "max_new_tokens": 400,
         "do_sample": False,
         "num_beams": 1,
         "temperature": 0.7,
     }
     
     SCENE_ANALYSIS = {
-        "max_new_tokens": 200,
+        "max_new_tokens": 400,
         "do_sample": False,
         "num_beams": 1,
         "temperature": 0.7,
     }
     
     PLANNING = {
-        "max_new_tokens": 200,
+        "max_new_tokens": 400,
         "do_sample": False,
         "num_beams": 1,
         "temperature": 0.7,

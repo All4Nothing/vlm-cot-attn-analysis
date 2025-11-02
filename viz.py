@@ -7,7 +7,7 @@ from PIL import Image
 import torch
 
 
-def save_all_heads(attn: torch.Tensor, meta: Dict, save_dir: str) -> None:
+def save_all_heads(attn: torch.Tensor, meta: Dict, save_dir: str, stage_name: str) -> None:
     """Save all layer-head attention maps to individual PNG files.
     
     Args:
@@ -19,11 +19,16 @@ def save_all_heads(attn: torch.Tensor, meta: Dict, save_dir: str) -> None:
     P = int(meta.get("patch_size", int(np.sqrt(V))))
     
     # Create directory structure
-    all_heads_dir = os.path.join(save_dir, "all_heads")
+    all_heads_dir = os.path.join(save_dir, f"{stage_name}_all_heads")
     os.makedirs(all_heads_dir, exist_ok=True)
     
     print(f"Saving all {L} layers × {H} heads = {L*H} attention maps...")
     
+
+    global_min = attn.min()
+    global_max = attn.max()
+    print(f"global_min: {global_min}")
+    print(f"global_max: {global_max}")
     # Save each layer-head combination
     for layer in range(L):
         layer_dir = os.path.join(all_heads_dir, f"layer_{layer:02d}")
@@ -35,7 +40,7 @@ def save_all_heads(attn: torch.Tensor, meta: Dict, save_dir: str) -> None:
             
             # Create figure
             fig, ax = plt.subplots(1, 1, figsize=(6, 6))
-            im = ax.imshow(a2d, cmap="viridis", interpolation='nearest')
+            im = ax.imshow(a2d, cmap="viridis", interpolation='nearest') # vmin=global_min, vmax=global_max
             ax.set_title(f"Layer {layer}, Head {head}", fontsize=14, fontweight='bold')
             ax.axis("off")
             plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
@@ -70,7 +75,12 @@ def save_all_heads_grid(attn: torch.Tensor, meta: Dict, save_path: str, heads_pe
     fig, axes = plt.subplots(rows, heads_per_row, figsize=(2 * heads_per_row, 2 * rows))
     if rows == 1:
         axes = axes.reshape(1, -1)
-    
+        
+    global_min = attn.min()
+    global_max = attn.max()
+    print(f"global_min: {global_min}")
+    print(f"global_max: {global_max}")
+
     print(f"Creating overview grid: {rows} rows × {heads_per_row} cols...")
     
     idx = 0
@@ -120,6 +130,11 @@ def plot_heads_grid(attn: torch.Tensor, selected: List[Dict], meta: Dict, save_p
     except Exception as e:
         axes[0].text(0.5, 0.5, f"Image load error\n{e}", ha='center', va='center')
         axes[0].axis("off")
+
+    global_min = attn.min()
+    global_max = attn.max()
+    print(f"global_min: {global_min}")
+    print(f"global_max: {global_max}")
 
     # Attention maps
     for i, hinfo in enumerate(selected):
