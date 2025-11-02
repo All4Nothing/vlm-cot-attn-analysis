@@ -292,9 +292,9 @@ def _generate_with_attention(stage, model, tokenizer, input_ids: torch.Tensor,
         # NOTE: In subsequent turns, K-V cache contains visual tokens from first turn
         # system prompt + visual tokens + user prompt = 34 + 576 + 107
         attn_last_to_vis = attn[:, :, -1:, begin_pos_vis:begin_pos_vis + vis_len] # 32 x 32 x 1 x 722(34+576)
+        
 
-
-    return generated_text, attn_last_to_vis, vis_token_pos, attn_last_to_sys, attn_last_to_user
+    return generated_text, attn_last_to_vis, vis_token_pos
 
 
 def _save_stage_result(
