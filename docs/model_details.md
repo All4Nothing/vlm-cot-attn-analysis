@@ -8,3 +8,4 @@
 - LLM
     - token lenght: 4096
     - 32 Layers 32 Heads = 1024 heads
+    - vocab size: 32000

@@ -167,20 +167,22 @@ def _generate_collect(model, tokenizer, image_processor, input_ids, image_tensor
     # print(f"Image token length: {vis_len}") # 576
 
     # print(f"gen.keys(): {gen.keys()}") # ['sequences', 'attentions', 'past_key_values']
-    # print(f"gen.sequences: {gen.sequences}") # [1, 10]
+    print(f"gen.sequences[0]: {gen.sequences[0]}")
 
     idx = None
     for i in range(len(gen.sequences[0])):
-        # print(f"gen.sequences[{i}]: {gen.sequences[0][i]}, decoded: {tokenizer.decode(gen.sequences[0][i])}")
+        print(f"gen.sequences[0][{i}]: {gen.sequences[0][i]}, decoded: {tokenizer.decode(gen.sequences[0][i])}")
         if gen.sequences[0][i] == 3593 and idx is None: # bus
             idx = i
             
             
     if idx is None:
-        raise RuntimeError("Generated text not found.")
+        print("⚠️ Generated idx not found.")
+        print("Set idx to 0.")
+        idx = 0
 
-    # print(f"generated text: {generated_text}")
-    # print(f"len gen.attentions: {len(gen.attentions)}") # 10
+    print(f"generated text: {generated_text}")
+    print(f"len gen.attentions: {len(gen.attentions)}") # 10
     # print(f"len of gen.attentions[0]: {len(gen.attentions[0])}") # 32
     # print(f"shape of gen.attentions[0][0]: {gen.attentions[0][0].shape}") # [1, 32, 615, 615]
     # # print(f"gen.sequences[0, input_len:]: {gen.sequences[0, input_len:]}") #
@@ -190,8 +192,9 @@ def _generate_collect(model, tokenizer, image_processor, input_ids, image_tensor
     # # print(f"gen.sequences[0, input_len + 1]: {gen.sequences[0, input_len + 1]}") # 616
 
     if hasattr(gen, 'attentions') and gen.attentions:   
-        step_idx = gen.attentions[idx+1]  # [B,H,1,src]
-        # print(f"shape of step_idx[0]: {step_idx[0].shape}") # [1, 32, 1, 616]
+        step_idx = gen.attentions[idx]  # [B,H,1,src]
+        print(f"len of step_idx: {len(step_idx)}")
+        print(f"shape of step_idx[0]: {step_idx[0].shape}") # [1, 32, 1, 616]
         # print(f"shape of step_idx[0][0]: {step_idx[0][0].shape}") # [32, 1, 616]
         layers = [t[0] for t in step_idx]  # list of [H,1,src]
 

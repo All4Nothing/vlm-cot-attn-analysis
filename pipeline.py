@@ -11,6 +11,7 @@ import torch
 from collector import collect_attention
 from analyze import load_attention_file, analyze_heads
 from multi_turn_inference import multi_turn_inference
+# from multi_turn_inference_text_attn import multi_turn_inference_text_attn
 # from bbox import (
 #    combine_heads,
 #    binarize_mean_relu,

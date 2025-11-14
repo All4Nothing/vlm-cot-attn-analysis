@@ -29,6 +29,7 @@ def save_all_heads(attn: torch.Tensor, meta: Dict, save_dir: str, stage_name: st
     global_max = attn.max()
     print(f"global_min: {global_min}")
     print(f"global_max: {global_max}")
+
     # Save each layer-head combination
     for layer in range(L):
         layer_dir = os.path.join(all_heads_dir, f"layer_{layer:02d}")
@@ -133,8 +134,8 @@ def plot_heads_grid(attn: torch.Tensor, selected: List[Dict], meta: Dict, save_p
 
     global_min = attn.min()
     global_max = attn.max()
-    print(f"global_min: {global_min}")
-    print(f"global_max: {global_max}")
+    # print(f"global_min: {global_min}")
+    # print(f"global_max: {global_max}")
 
     # Attention maps
     for i, hinfo in enumerate(selected):

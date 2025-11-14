@@ -27,10 +27,7 @@ def main():
     print()
     
     example_texts = [
-            "multiple cars and trucks",
-            "traffic signs and traffic lights",
-            "green light",
-            "pedestrians and cyclists"
+            "multiple cars and trucks"
     ]
     
     for example in example_texts:

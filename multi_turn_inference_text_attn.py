@@ -131,7 +131,7 @@ def _analyze_attn(cfg: DictConfig, attn_file, stage_name: str, save_id: str):
 
     # Save all heads if enabled
     if cfg.get("save_all_heads", False):
-        # save_all_heads(attn, meta, attn_root, stage_name)
+        save_all_heads(attn, meta, attn_root, stage_name)
         grid_path = os.path.join(attn_root, f"{stage_name}_all_heads_overview.png")
         save_all_heads_grid(attn, meta, grid_path, heads_per_row=8)
 
@@ -217,22 +217,16 @@ def _generate_with_attention(stage, model, tokenizer, input_ids: torch.Tensor,
         num_beams=num_beams,
         return_dict_in_generate=True,
         output_attentions=True,
-        output_scores=True,
         **generation_kwargs,  # Pass additional generation arguments
     )
 
 
     sequences = gen.sequences
     generated_text = tokenizer.batch_decode(sequences, skip_special_tokens=True)[0]
-    print(f"len of sequences: {len(sequences[0])}")
-    print(f"len generated text: {len(generated_text)}")
-    scores = gen.scores
-    print(f"len of scores: {len(scores)}")
-    print(f"shape of scores[0]: {scores[0].shape}")
 
     # Find the index of the generated text
     ## len(sequences[0] == len(gen.attentions)
-    if stage == "stage1" or stage == "stage2" or stage == "stage3":
+    if stage == "stage1" or stage == "stage2":
         idx = None
         len_sequences = len(sequences[0])
         # print(f"sequences[0][0]: {sequences[0][0]}")
@@ -246,44 +240,18 @@ def _generate_with_attention(stage, model, tokenizer, input_ids: torch.Tensor,
         # print(f"decoded sequences[0][{len_sequences-1}]: {tokenizer.decode(sequences[0][len_sequences-1])}")
         for i in range(len(sequences[0])):
             # print(f"gen.sequences[{i}]: {gen.sequences[0][i]}, decoded: {tokenizer.decode(gen.sequences[0][i])}")
-            if idx is None and (sequences[0][i] == 13328 or sequences[0][i] == 7933 or sequences[0][i] == 2654):
+            if sequences[0][i] == 7933 and idx is None:
                 idx = i
                 print(f"idx: {idx}")
                 print(f"decoded idx-1: {tokenizer.decode(sequences[0][idx-1])}")
                 print(f"decoded idx: {tokenizer.decode(sequences[0][idx])}")
                 print(f"decoded idx+1: {tokenizer.decode(sequences[0][idx+1])}")
-
-                # scores
-                logits_for_idx = scores[idx]
-                prob = torch.softmax(logits_for_idx, dim=-1)
-                idx_confidence = prob[0, 7933].item()
-                print(f"  Confidence for 'idx': {idx_confidence * 100:.2f}%")
-                top_k_probs, top_k_ids = torch.topk(prob, 5)
-                print(f"  Top 5 candidates at that step:")
-                probs_list = top_k_probs[0]
-                ids_list = top_k_ids[0]
-                for i in range(ids_list.size(0)):
-                    token_id = ids_list[i].item()
-                    token_prob = probs_list[i].item()
-                    token = tokenizer.decode(token_id)
-                    print(f"    {i+1}. {token:<15} (ID: {token_id}) - Prob: {token_prob * 100:.2f}%")
-                print(f"  Confidence for 'idx': {idx_confidence * 100:.2f}%")
-
-                red_light_confidence = prob[0, 2654].item()
-                yellow_light_confidence = prob[0, 13328].item()
-                green_light_confidence = prob[0, 7933].item()
-                print(f"  Confidence for 'red_light': {red_light_confidence * 100:.2f}%")
-                print(f"  Confidence for 'yellow_light': {yellow_light_confidence * 100:.2f}%")
-                print(f"  Confidence for 'green_light': {green_light_confidence * 100:.2f}%")
-                
         if idx is None:
             print("⚠️ Generated text not found.")
             idx = 0
     else:
         idx = 0
     # idx = -1
-
-
 
     attn_last_to_vis = None
 
@@ -324,8 +292,10 @@ def _generate_with_attention(stage, model, tokenizer, input_ids: torch.Tensor,
         # NOTE: In subsequent turns, K-V cache contains visual tokens from first turn
         # system prompt + visual tokens + user prompt = 34 + 576 + 107
         attn_last_to_vis = attn[:, :, -1:, begin_pos_vis:begin_pos_vis + vis_len] # 32 x 32 x 1 x 722(34+576)
+        attn_last_to_text = attn[:, :, -1:, begin_pos_vis + vis_len:] # 32 x 32 x 1 x 107
+        attn_last_to_sys = attn[:, :, -1:, :begin_pos_vis] # 32 x 32 x 1 x 34
 
-    return generated_text, attn_last_to_vis, vis_token_pos
+    return generated_text, attn_last_to_vis, vis_token_pos,  attn_last_to_sys, attn_last_to_text, begin_pos_vis, vis_len
 
 
 def _save_stage_result(
@@ -360,7 +330,7 @@ def _save_stage_result(
 # Multi-turn Inference Main Function
 # ═══════════════════════════════════════════════════════
 
-def multi_turn_inference(
+def multi_turn_inference_text_attn(
     cfg,
     image_file: str,
     save_dir: str,
@@ -437,7 +407,7 @@ def multi_turn_inference(
             print(f"Stage 1 input_ids max value: {input_ids_stage1.max().item()}")
 
             # Run inference (first turn: provide image_tensor to generate visual features)
-            scene_desc_text, attn_stage1, vis_token_pos = _generate_with_attention(
+            scene_desc_text, attn_stage1, vis_token_pos, attn_last_to_sys, attn_last_to_text, begin_pos_vis, vis_len = _generate_with_attention(
                 "stage1",
                 model, tokenizer, input_ids_stage1,
                 image_tensor=image_tensor,  # Only provide first turn
@@ -445,9 +415,7 @@ def multi_turn_inference(
                 vis_token_pos=None,  # None in the first turn
                 **PromptConfig.SCENE_DESCRIPTION
             )
-
-            # scene_desc_text = "The driving scene is a busy city street with multiple cars and traffic lights. The traffic is moderate, and the weather appears to be sunny. The time of day is during the day, and the road conditions seem to be smooth. There are several traffic signs and traffic lights along the street, which are essential for safe navigation. The traffic lights are currently red. The presence of pedestrians and other vehicles, such as buses, requires the driver to be vigilant and maintain a safe distance from other road users."
-
+            
             # Add assistant response to messages
             messages.append({"role": "assistant", "content": scene_desc_text})
 
@@ -474,6 +442,46 @@ def multi_turn_inference(
                 save_dir, model_dir, save_id, "stage1_description",
                 attn_stage1, meta_stage1
             )
+
+            print(f"attn_last_to_sys: {attn_last_to_sys.shape}")
+            print(f"attn_last_to_text: {attn_last_to_text.shape}")
+            print(f"begin_pos_vis: {begin_pos_vis}")
+            print(f"vis_len: {vis_len}")
+            
+            # sys
+            avg_sys = attn_last_to_sys.mean(dim=(0, 1)).squeeze()
+            top_scores, top_indices = torch.topk(avg_sys, k=10)
+            top_scores = top_scores.cpu().tolist()
+            top_indices = top_indices.cpu().tolist()
+            sys_results = []
+            print(f"shape of input_ids_stage1: {input_ids_stage1.shape}")
+            for score, idx in zip(top_scores, top_indices):
+                token_id = input_ids_stage1[0, idx].item()
+                # convert_ids_to_tokens takes a list
+                token_str = tokenizer.convert_ids_to_tokens([token_id])[0]
+                
+                # Replace the '▁' (U+2581) symbol from SentencePiece tokenizer with a whitespace character
+                token_str = token_str.replace(' ', ' ') 
+                
+                sys_results.append((idx, token_str, score))
+            print("Top Attended SYS Tokens:")
+            print("\n".join([f" Index: {i:<15} | Token: {t:<15} | Score: {s:.4f}" for i, t, s in sys_results]))
+
+            # text
+            avg_text = attn_last_to_text.mean(dim=(0, 1)).squeeze()
+            top_scores, top_indices = torch.topk(avg_text, k=10)
+            top_scores = top_scores.cpu().tolist()
+            top_indices = top_indices.cpu().tolist()
+            text_results = []
+            for score, idx in zip(top_scores, top_indices):
+                print(f"top_scores: {score}")
+                print(f"top_indices: {idx}")
+                token_id = input_ids_stage1[0, idx+begin_pos_vis].item()
+                token_str = tokenizer.convert_ids_to_tokens([token_id])[0]
+                token_str = token_str.replace(' ', ' ') 
+                text_results.append((idx, token_str, score))
+            print("Top Attended TEXT Tokens:")
+            print("\n".join([f" Index: {i:<15} | Token: {t:<15} | Score: {s:.4f}" for i, t, s in text_results]))
 
             _analyze_attn(cfg, stage1_path, "stage1_description", save_id)
 
@@ -543,13 +551,53 @@ def multi_turn_inference(
                 attn_stage2, meta_stage2
             )
 
-            _analyze_attn(cfg, stage2_path, "stage2_analysis", save_id)
+            print(f"attn_last_to_sys: {attn_last_to_sys.shape}")
+            print(f"attn_last_to_text: {attn_last_to_text.shape}")
+            print(f"begin_pos_vis: {begin_pos_vis}")
+            print(f"vis_len: {vis_len}")
+            
+            # sys
+            avg_sys = attn_last_to_sys.mean(dim=(0, 1)).squeeze()
+            top_scores, top_indices = torch.topk(avg_sys, k=10)
+            top_scores = top_scores.cpu().tolist()
+            top_indices = top_indices.cpu().tolist()
+            sys_results = []
+            print(f"shape of input_ids_stage2: {input_ids_stage2.shape}")
+
+            for score, idx in zip(top_scores, top_indices):
+                token_id = input_ids_stage2[0, idx].item()
+                # convert_ids_to_tokens는 리스트를 받습니다
+                token_str = tokenizer.convert_ids_to_tokens([token_id])[0]
+                
+                # SentencePiece 토크나이저의 ' ' (U+2581) 기호를 공백으로 변환
+                token_str = token_str.replace(' ', ' ') 
+                
+                sys_results.append((idx, token_str, score))
+            print("Top Attended SYS Tokens:")
+            print("\n".join([f" Index: {i:<15} | Token: {t:<15} | Score: {s:.4f}" for i, t, s in sys_results]))
+
+            # text
+            avg_text = attn_last_to_text.mean(dim=(0, 1)).squeeze()
+            top_scores, top_indices = torch.topk(avg_text, k=10)
+            top_scores = top_scores.cpu().tolist()
+            top_indices = top_indices.cpu().tolist()
+            text_results = []
+            for score, idx in zip(top_scores, top_indices):
+                token_id = input_ids_stage2[0, idx-begin_pos_vis].item()
+                token_str = tokenizer.convert_ids_to_tokens([token_id])[0]
+                token_str = token_str.replace(' ', ' ') 
+                text_results.append((idx, token_str, score))
+            print("Top Attended TEXT Tokens:")
+            print("\n".join([f" Index: {i:<15} | Token: {t:<15} | Score: {s:.4f}" for i, t, s in text_results]))
+
             results["stage2"] = {
                 "text": analysis_text,
                 "attn_shape": list(attn_stage2.shape) if attn_stage2 is not None else None,
                 "save_path": stage2_path,
                 "meta": meta_stage2
             }
+
+            _analyze_attn(cfg, stage2_path, "stage2_analysis", save_id)
 
         except Exception as e:
             print(f"[Multi-turn] Error in Stage 2: {e}")
