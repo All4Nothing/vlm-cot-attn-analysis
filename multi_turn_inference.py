@@ -246,7 +246,7 @@ def _generate_with_attention(stage, model, tokenizer, input_ids: torch.Tensor,
         # print(f"decoded sequences[0][{len_sequences-1}]: {tokenizer.decode(sequences[0][len_sequences-1])}")
         for i in range(len(sequences[0])):
             # print(f"gen.sequences[{i}]: {gen.sequences[0][i]}, decoded: {tokenizer.decode(gen.sequences[0][i])}")
-            if idx is None and (sequences[0][i] == 13328 or sequences[0][i] == 7933 or sequences[0][i] == 2654):
+            if idx is None and (sequences[0][i] == 13328 or sequences[0][i] == 7933 or `sequences[0][i] == 2654):
                 idx = i
                 print(f"idx: {idx}")
                 print(f"decoded idx-1: {tokenizer.decode(sequences[0][idx-1])}")

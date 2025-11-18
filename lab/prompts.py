@@ -15,14 +15,14 @@ class PromptTemplates:
     # ═════════════════════════════════════════════
     # Scene Analysis
     # ═════════════════════════════════════════════
-    # SCENE_ANALYSIS = """Based on the scene description you just provided, please identify the critical objects that are most important for the driving decision. For each object, please describe its action or state (e.g., moving, parked, braking) and explain its potential influence on our (ego vehicle's) driving plan."""
-    SCENE_ANALYSIS = """You just provided a scene description. Before proceeding, critically verify your last response against the image. Are there any inconsistencies or errors in your description when compared to the visual evidence (especially traffic lights, object states)? Based on this visual verification, provide an updated and corrected Scene Analysis. Identify the critical objects, their states, and their potential influence."""
+    SCENE_ANALYSIS = """Based on the scene description you just provided, please identify the critical objects that are most important for the driving decision. For each object, please describe its action or state (e.g., moving, parked, braking) and explain its potential influence on our (ego vehicle's) driving plan."""
+    # SCENE_ANALYSIS = """You just provided a scene description. Before proceeding, critically verify your last response against the image. Are there any inconsistencies or errors in your description when compared to the visual evidence (especially traffic lights, object states)? Based on this visual verification, provide an updated and corrected Scene Analysis. Identify the critical objects, their states, and their potential influence."""
 
     # ═════════════════════════════════════════════
     # Planning
     # ═════════════════════════════════════════════
-    # PLANNING = """Now, based on all your analysis so far, what should our driving behavior be? Please provide the expert meta-decision (e.g., accelerate, decelerate, change lane left) and explain the reasoning for this plan, considering other participants, road conditions, and traffic lights."""
-    PLANNING = """You have just provided a verified analysis. Now, using both that analysis and a final look at the image, determine the safest driving plan. Your plan must be fully consistent with the visual reality (especially traffic lights and pedestrian movements)."""
+    PLANNING = """Now, based on all your analysis so far, what should our driving behavior be? Please provide the expert meta-decision (e.g., accelerate, decelerate, change lane left) and explain the reasoning for this plan, considering other participants, road conditions, and traffic lights."""
+    # PLANNING = """You have just provided a verified analysis. Now, using both that analysis and a final look at the image, determine the safest driving plan. Your plan must be fully consistent with the visual reality (especially traffic lights and pedestrian movements)."""
 
     @staticmethod
     def format_scene_description(image_placeholder: str = "<image>") -> str:
